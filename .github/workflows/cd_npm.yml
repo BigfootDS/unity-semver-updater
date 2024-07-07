@@ -85,7 +85,6 @@ jobs:
         with:
           token: ${{ secrets.npm_publish_token }}
           access: "public"
-          provenance: true
 
 
   
