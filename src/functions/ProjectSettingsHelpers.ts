@@ -8,10 +8,12 @@ import {
 	regexFindPsp2MasterVersionWithQuad, 
 	regexFindSwitchDisplayVersionWithQuad, 
 	regexFindSwitchReleaseVersionWithQuad, 
-	regexFindXboxOneVersionWithQuad 
+	regexFindXboxOneVersionWithQuad, 
+	regexSemverWithQuadAndExtensions
 } from '../utils/constants';
 import { UnityProjectVersion } from "../utils/UnityProjectVersion";
 import { PlayerSettingsVersionStrings } from '../utils/types';
+import { makeRegexpFromStringFormat } from './RegexFromString';
 
 
 async function readTargetFile(targetFilePath: string): Promise<string>{
@@ -31,13 +33,24 @@ export class ProjectSettingsHelpers {
 	 * @export
 	 * @async
 	 * @param {string} targetFilePath An absolute file path to a `ProjectSettings.asset` file for a Unity project.
-	 * @returns {string} The semver value assigned to the bundleVersion property of the targeted `ProjectSettings.asset` file.
+	 * @param {string} valueFormat A string that will get processed and turned into regex to find an existing project's semver version.
+	 * @returns {string} The semver value assigned to the bundleVersion property of the targeted `ProjectSettings.asset` file, in a helper format for multiple Unity-supported platforms.
 	 */
-	static async getExistingBundleVersion(targetFilePath: string): Promise<UnityProjectVersion>{
+	static async getExistingBundleVersion(targetFilePath: string, valueFormat: string = `bundleVersion: ${regexSemverWithQuadAndExtensions.source}`): Promise<UnityProjectVersion|null>{
+
+		console.log("Will use this regex to find existing semver data in the target file:\n" + valueFormat);
 
 		let fileAsItWasRead: string = await readTargetFile(targetFilePath);
 
-		let regexResult: RegExpExecArray|string = regexFindBundleVersionWithQuad.exec(fileAsItWasRead) || "";
+		let regexResult: RegExpExecArray|string = makeRegexpFromStringFormat(valueFormat).exec(fileAsItWasRead) || "";
+		if (regexResult == ""){
+			console.log("Custom format for semver regex did not find anything. Falling back to 'default plus release label plus build label plus quad number' regex instead.");
+			regexResult =  regexFindBundleVersionWithQuad.exec(fileAsItWasRead) || "";
+		}
+
+		if (regexResult == ""){
+			return null;
+		}
 
 		let regexResultGroups: {[key: string]: string}|undefined = (regexResult as RegExpExecArray).groups;
 
@@ -48,7 +61,7 @@ export class ProjectSettingsHelpers {
 			Number.parseInt(regexResultGroups?.quad || "0") || 0,
 			regexResultGroups?.releaseLabel || "",
 			regexResultGroups?.buildLabel || "",
-			regexResult[0].toString()
+			regexResult ? regexResult[0].toString() : ""
 		);
 	}
 
@@ -60,56 +73,49 @@ export class ProjectSettingsHelpers {
 	 * @async
 	 * @param {string} targetFilePath Path to the `ProjectSettings.asset` file.
 	 * @param {PlayerSettingsVersionStrings} targetPropertyCollection Structured object of version strings and numbers, per whatever the supported Unity platforms need.
+	 * @param {string} searchFormat A string that will get processed and turned into regex to find an existing project's semver version.
 	 * @returns {boolean} True on a smooth, successful write. False if anything went wrong.
 	 */
-	static async writeToProjectSettings(targetFilePath: string, targetPropertyCollection: PlayerSettingsVersionStrings): Promise<boolean>{
+	static async writeToProjectSettings(targetFilePath: string, targetPropertyCollection: PlayerSettingsVersionStrings, searchFormat: string = regexSemverWithQuadAndExtensions.source): Promise<boolean>{
 		let success = false;
 
 		let fileAsItWasRead: string = await readTargetFile(targetFilePath);
 
 		let fileModified: string = fileAsItWasRead;
 
+		let propertiesNotUpdated: string[] = [];
 
 		let targetPropEntries = Object.entries(targetPropertyCollection);
 		for (let index = 0; index < targetPropEntries.length; index++) {
 			const targetProp = targetPropEntries[index];
 			
-			// console.log(`Key: ${targetProp[0]}, Value: ${targetProp[1]}`);
-
 			switch (targetProp[0]) {
 				case "bundleVersion":
-					fileModified = fileModified.replace(regexFindBundleVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
 				case "switchReleaseVersion":
-					fileModified = fileModified.replace(regexFindSwitchReleaseVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
 				case "switchDisplayVersion":
-					fileModified = fileModified.replace(regexFindSwitchDisplayVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
 				case "ps4MasterVersion":
-					fileModified = fileModified.replace(regexFindPs4MasterVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
 				case "ps4AppVersion":
-					fileModified = fileModified.replace(regexFindPs4AppVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
 				case "metroPackageVersion":
-					fileModified = fileModified.replace(regexFindMetroPackageVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
 				case "XboxOneVersion":
-					fileModified = fileModified.replace(regexFindXboxOneVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
 				case "psp2MasterVersion":
-					fileModified = fileModified.replace(regexFindPsp2MasterVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
 				case "psp2AppVersion":
-					fileModified = fileModified.replace(regexFindPsp2AppVersionWithQuad, `${targetProp[0]}: ${targetProp[1]}`);
-					break;
+				case "supportedProperty":
+					let customFormatRegexp: RegExp = makeRegexpFromStringFormat(`${targetProp[0]}: ` + searchFormat);
+					// console.log(customFormatRegexp);
+					let tempFileModified: string = fileModified.replace(customFormatRegexp, `${targetProp[0]}: ${targetProp[1]}`)
+					
+					if (fileModified != tempFileModified){
+						fileModified = tempFileModified;
+						break;
+					}
 				default:
+					propertiesNotUpdated.push(targetProp[0])
 					break;
 			}
 		}
-
-
+		if (propertiesNotUpdated.length > 0){
+			console.log("These properties were not found or did not have existing values found in a matching format, and thus were not updated:\n" + propertiesNotUpdated);
+		}
 		
 		let result = await fsPromises.writeFile(targetFilePath, fileModified);
 

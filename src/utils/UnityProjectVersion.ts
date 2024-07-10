@@ -1,4 +1,4 @@
-
+import { Bumper, BumperRecommendation } from "conventional-recommended-bump/dist";
 
 /**
  * An object mapping the data used to construct a semver string for various Unity-supported platforms, alongside some helper methods.
@@ -166,6 +166,7 @@ export class UnityProjectVersion {
 			this.revision = this.quad;
 		}
 	}
+
 
 	
 	/**
