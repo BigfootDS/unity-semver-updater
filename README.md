@@ -4,7 +4,7 @@ NodeJS tool to update a Unity project's version to a specified format - typicall
 
 The intention is that this package exists separate from any automation workflow actions that might use it, so we can quickly prototype and iterate on the logic without the hassle of running automated workflows. Looking at you, GitHub Actions, and how painful it is to run things locally.
 
-For example, this GitHub Action will be converted to use this package as the core of its logic soon:
+For example, this GitHub Action uses this package as the core of its logic:
 
 - [AlexStormwood/UnityAutomatedSemver](https://github.com/AlexStormwood/UnityAutomatedSemver)
 
